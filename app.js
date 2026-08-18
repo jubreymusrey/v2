@@ -16,124 +16,64 @@ const referenceRanges = {
 
 let counts = { Neutrophil: 0, Lymphocyte: 0, Monocyte: 0, Eosinophil: 0, Basophil: 0 };
 let countHistory = [];
-let model, recognizer, audioContext, mediaStream, audioProcessor;
-let isOfflineEngineReady = false;
 let isListening = false;
+let recognition = null;
 
 const cellAliases = {
-  Neutrophil: ['neutrophil', 'neutro', 'seg', 'band'],
-  Lymphocyte: ['lymphocyte', 'lymph', 'lym'],
-  Monocyte: ['monocyte', 'mono'],
-  Eosinophil: ['eosinophil', 'eosi', 'eos'],
-  Basophil: ['basophil', 'baso']
+  Neutrophil: ['neutrophil', 'neutro', 'seg', 'band', 'neutrophils'],
+  Lymphocyte: ['lymphocyte', 'lymph', 'lym', 'lymphocytes'],
+  Monocyte: ['monocyte', 'mono', 'monocytes'],
+  Eosinophil: ['eosinophil', 'eosi', 'eos', 'eosinophils'],
+  Basophil: ['basophil', 'baso', 'basophils']
 };
 
-const undoAliases = ['undo', 'tolak', 'back', 'delete'];
+const undoAliases = ['undo', 'tolak', 'back', 'delete', 'correction'];
 
-// Function muat turun fail dengan penunjuk peratusan %
-async function fetchWithProgress(url, onProgress) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-
-  const contentLength = response.headers.get('content-length');
-  if (!contentLength) return await response.blob();
-
-  const total = parseInt(contentLength, 10);
-  let loaded = 0;
-  const reader = response.body.getReader();
-  const chunks = [];
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    loaded += value.length;
-    
-    const percent = Math.round((loaded / total) * 100);
-    onProgress(percent);
-  }
-
-  return new Blob(chunks);
-}
-
-// Inisialisasi Vosk dengan Peratusan Download
-async function initOfflineVosk() {
-  const micStatusText = document.getElementById('micStatusText');
-  const micDot = document.getElementById('micDot');
-  micStatusText.innerText = "Memuatkan Model Offline: 0%";
-
-  try {
-    const modelUrl = 'https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip';
-    
-    // Download fail berserta peratusan %
-    const modelBlob = await fetchWithProgress(modelUrl, (percent) => {
-      micStatusText.innerText = `Memuatkan Model Offline: ${percent}%`;
-    });
-
-    micStatusText.innerText = "Menyediakan Enjin AI...";
-
-    model = await Vosk.createModel(modelBlob);
-    recognizer = new model.KaldiRecognizer(16000);
-    
-    recognizer.setGrammar(["neutrophil", "neutro", "lymphocyte", "lymph", "monocyte", "mono", "eosinophil", "eosi", "basophil", "baso", "undo", "tolak"]);
-
-    recognizer.on("result", (message) => {
-      const text = message.result.text;
-      if (text) processCommand(text);
-    });
-
-    recognizer.on("partialresult", (message) => {
-      const text = message.result.partial;
-      if (text) processCommand(text);
-    });
-
-    isOfflineEngineReady = true;
-    micStatusText.innerText = "Sedia (Offline)";
-    micDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500";
-  } catch (err) {
-    console.error(err);
-    micStatusText.innerText = "Ralat Muat Turun Model";
-    micDot.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
-  }
-}
-
-async function startOfflineListening() {
-  if (!isOfflineEngineReady) {
-    await initOfflineVosk();
-  }
-
-  mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-  audioContext = new AudioContext();
+// Inisialisasi Speech Recognition
+function initSpeech() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   
-  const source = audioContext.createMediaStreamSource(mediaStream);
-  audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+  if (!SpeechRecognition) {
+    alert("Browser anda tidak menyokong Speech Recognition. Sila guna Google Chrome.");
+    return null;
+  }
 
-  audioProcessor.onaudioprocess = (event) => {
-    try {
-      recognizer.acceptWaveform(event.inputBuffer);
-    } catch (e) {}
+  const rec = new SpeechRecognition();
+  rec.continuous = true;
+  rec.interimResults = true; // BACA SERTA-MERTA TANPA DELAY
+  rec.lang = 'en-US';
+
+  rec.onstart = () => {
+    isListening = true;
+    updateMicUI(true);
   };
 
-  source.connect(audioProcessor);
-  audioProcessor.connect(audioContext.destination);
+  rec.onend = () => {
+    if (isListening && getTotalCount() < 100) {
+      try { rec.start(); } catch (e) {}
+    } else {
+      isListening = false;
+      updateMicUI(false);
+    }
+  };
 
-  isListening = true;
-  document.getElementById('micStatusText').innerText = "AKTIFF (Offline Recording)";
-  document.getElementById('micDot').className = "w-2.5 h-2.5 rounded-full bg-emerald-500 pulse-animation";
-}
+  rec.onerror = (event) => {
+    console.error("Speech Error:", event.error);
+    if (event.error === 'not-allowed') {
+      alert("Akses Mikrofon Ditolak! Sila benarkan mic dalam tetapan browser.");
+    }
+    isListening = false;
+    updateMicUI(false);
+  };
 
-function stopOfflineListening() {
-  if (audioProcessor) audioProcessor.disconnect();
-  if (audioContext) audioContext.close();
-  if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
-  
-  isListening = false;
-  if (isOfflineEngineReady) {
-    document.getElementById('micStatusText').innerText = "Sedia (Offline)";
-  } else {
-    document.getElementById('micStatusText').innerText = "Tidak Aktif";
-  }
-  document.getElementById('micDot').className = "w-2.5 h-2.5 rounded-full bg-slate-500";
+  rec.onresult = (event) => {
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript.trim().toLowerCase();
+      processCommand(transcript);
+    }
+  };
+
+  return rec;
 }
 
 function processCommand(transcript) {
@@ -160,7 +100,7 @@ function addCount(cellType) {
   updateUI();
 
   if (getTotalCount() >= 100) {
-    stopOfflineListening();
+    stopListening();
     showResults();
   }
 }
@@ -171,10 +111,15 @@ function updateManualCount(cellType, delta) {
 
   counts[cellType] += delta;
   if (delta === 1) countHistory.push(cellType);
+  else {
+    const idx = countHistory.lastIndexOf(cellType);
+    if (idx !== -1) countHistory.splice(idx, 1);
+  }
+
   updateUI();
 
   if (getTotalCount() >= 100) {
-    stopOfflineListening();
+    stopListening();
     showResults();
   }
 }
@@ -193,17 +138,67 @@ function getTotalCount() {
 function updateUI() {
   const total = getTotalCount();
   for (const [cell, count] of Object.entries(counts)) {
-    document.getElementById(`count${cell}`).innerText = count;
-    document.getElementById(`percent${cell}`).innerText = `(${count}%)`;
+    const elCount = document.getElementById(`count${cell}`);
+    const elPercent = document.getElementById(`percent${cell}`);
+    if (elCount) elCount.innerText = count;
+    if (elPercent) elPercent.innerText = `(${count}%)`;
   }
-  document.getElementById('totalCounter').innerText = `${total} / 100`;
-  document.getElementById('progressBar').style.width = `${total}%`;
-  document.getElementById('progressPercent').innerText = `${total}%`;
+  
+  const elTotal = document.getElementById('totalCounter');
+  const elBar = document.getElementById('progressBar');
+  const elProgressPercent = document.getElementById('progressPercent');
+  
+  if (elTotal) elTotal.innerText = `${total} / 100`;
+  if (elBar) elBar.style.width = `${total}%`;
+  if (elProgressPercent) elProgressPercent.innerText = `${total}%`;
+}
+
+function updateMicUI(active) {
+  const micDot = document.getElementById('micDot');
+  const micStatusText = document.getElementById('micStatusText');
+  const btnStartVoice = document.getElementById('btnStartVoice');
+
+  if (active) {
+    if (micDot) micDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 pulse-animation";
+    if (micStatusText) micStatusText.innerText = "AKTIFF (Mendengar...)";
+    if (btnStartVoice) btnStartVoice.innerText = "Stop Voice";
+  } else {
+    if (micDot) micDot.className = "w-2.5 h-2.5 rounded-full bg-slate-500";
+    if (micStatusText) micStatusText.innerText = "Status: Sedia";
+    if (btnStartVoice) btnStartVoice.innerText = "Mula Voice Counter";
+  }
+}
+
+function toggleListening() {
+  if (!recognition) recognition = initSpeech();
+  if (!recognition) return;
+
+  if (isListening) {
+    stopListening();
+  } else {
+    if (getTotalCount() >= 100) {
+      alert("Kiraan dah cukup 100! Tekan Reset untuk mula balik.");
+      return;
+    }
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+}
+
+function stopListening() {
+  isListening = false;
+  if (recognition) {
+    try { recognition.stop(); } catch (e) {}
+  }
+  updateMicUI(false);
 }
 
 function playBeep() {
   try {
-    const ctx = new AudioContext();
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator();
     osc.frequency.value = 800;
     osc.connect(ctx.destination);
@@ -215,8 +210,9 @@ function playBeep() {
 function showResults() {
   const species = document.getElementById('speciesSelect').value;
   const tableBody = document.getElementById('resultsTableBody');
+  if (!tableBody) return;
+  
   tableBody.innerHTML = '';
-
   const ref = referenceRanges[species] || {};
 
   for (const [cell, count] of Object.entries(counts)) {
@@ -242,23 +238,23 @@ function showResults() {
     `;
   }
 
-  document.getElementById('resultsModal').classList.remove('hidden');
+  const modal = document.getElementById('resultsModal');
+  if (modal) modal.classList.remove('hidden');
 }
 
 function resetCounter() {
   counts = { Neutrophil: 0, Lymphocyte: 0, Monocyte: 0, Eosinophil: 0, Basophil: 0 };
   countHistory = [];
-  stopOfflineListening();
+  stopListening();
   updateUI();
-  document.getElementById('resultsModal').classList.add('hidden');
+  const modal = document.getElementById('resultsModal');
+  if (modal) modal.classList.add('hidden');
 }
 
-document.getElementById('btnStartVoice').addEventListener('click', () => {
-  if (isListening) stopOfflineListening();
-  else startOfflineListening();
-});
-document.getElementById('btnReset').addEventListener('click', resetCounter);
-document.getElementById('btnCloseModal').addEventListener('click', () => document.getElementById('resultsModal').classList.add('hidden'));
-document.getElementById('btnNewCount').addEventListener('click', resetCounter);
+// Event Listeners
+document.getElementById('btnStartVoice')?.addEventListener('click', toggleListening);
+document.getElementById('btnReset')?.addEventListener('click', resetCounter);
+document.getElementById('btnCloseModal')?.addEventListener('click', () => document.getElementById('resultsModal')?.classList.add('hidden'));
+document.getElementById('btnNewCount')?.addEventListener('click', resetCounter);
 
 updateUI();
