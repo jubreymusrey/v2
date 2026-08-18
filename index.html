@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🐾 Offline Voice WBC Counter</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome CDN -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Vosk Offline Speech Recognition Engine Library -->
+  <script src="https://cdn.jsdelivr.net/npm/vosk-browser@0.0.8/dist/vosk.js"></script>
+
+  <style>
+    .pulse-animation { animation: pulse 1.5s infinite; }
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.05); opacity: 0.8; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 font-sans pb-12">
+
+  <!-- Header -->
+  <header class="bg-slate-900 text-white shadow-md sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
+      <div class="flex items-center gap-3">
+        <div class="bg-indigo-600 p-3 rounded-xl text-2xl">
+          <i class="fa-solid fa-wifi text-white"></i>
+        </div>
+        <div>
+          <h1 class="text-xl md:text-2xl font-bold tracking-wide">🐾 Offline Voice WBC Counter</h1>
+          <p class="text-xs text-emerald-400 font-semibold">⚡ 100% On-Device Processing (No Internet Required)</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <!-- Mic & Download Status Badge -->
+        <div id="micStatusBadge" class="flex items-center gap-2 bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-full text-xs font-medium text-slate-400">
+          <span id="micDot" class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+          <span id="micStatusText">Status: Belum Dimula</span>
+        </div>
+        <!-- Live Total Counter Badge -->
+        <div class="bg-indigo-950 border border-indigo-700/50 px-4 py-1.5 rounded-full text-center">
+          <span class="text-xs text-indigo-300 block uppercase tracking-wider font-semibold">Total Cells</span>
+          <span id="totalCounter" class="text-lg font-extrabold text-indigo-400">0 / 100</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-7xl mx-auto px-4 mt-6 space-y-6">
+
+    <!-- Progress Bar -->
+    <section class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+      <div class="flex justify-between items-center mb-2 text-sm font-semibold text-slate-700">
+        <span>Kiraan Sasaran</span>
+        <span id="progressPercent">0%</span>
+      </div>
+      <div class="w-full bg-slate-200 h-4 rounded-full overflow-hidden">
+        <div id="progressBar" class="bg-indigo-600 h-full w-0 transition-all duration-300"></div>
+      </div>
+    </section>
+
+    <!-- Controls -->
+    <section class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
+      <div class="w-full md:w-1/3 space-y-1">
+        <label for="speciesSelect" class="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+          <i class="fa-solid fa-paw text-indigo-600"></i> Pilih Spesies Haiwan:
+        </label>
+        <select id="speciesSelect" class="w-full bg-slate-50 border border-slate-300 text-slate-800 text-sm rounded-lg p-2.5 font-medium">
+          <option value="Cattle">🐮 Cattle (Lembu)</option>
+          <option value="Sheep">🐑 Sheep (Biri-Biri)</option>
+          <option value="Goats">🐐 Goats (Kambing)</option>
+          <option value="Pigs">🐖 Pigs (Babi)</option>
+          <option value="Dogs">🐶 Dogs (Anjing)</option>
+          <option value="Cats">🐱 Cats (Kucing)</option>
+          <option value="Horses">🐴 Horses (Kuda)</option>
+          <option value="Elephant">🐘 Elephant (Gajah)</option>
+          <option value="Camel">🐫 Camel (Unta)</option>
+          <option value="Rabbit">🐇 Rabbit (Arnab)</option>
+          <option value="Fowl">🐔 Fowl (Ayam/Burung)</option>
+          <option value="Man">🧍 Man (Manusia)</option>
+        </select>
+      </div>
+
+      <div class="flex items-center gap-3 w-full md:w-auto">
+        <button id="btnStartVoice" class="flex-1 md:flex-initial bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-5 py-2.5 rounded-lg shadow-sm transition flex items-center justify-center gap-2">
+          <i class="fa-solid fa-microphone"></i>
+          <span id="btnVoiceText">Mula Voice Offline</span>
+        </button>
+        <button id="btnReset" class="flex-1 md:flex-initial bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold px-4 py-2.5 rounded-lg transition flex items-center justify-center gap-2">
+          <i class="fa-solid fa-rotate-left"></i>
+          <span>Reset</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Cell Cards Grid -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <!-- Neutrophil -->
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
+        <div>
+          <h2 class="font-bold text-slate-800">Neutrophil</h2>
+          <p class="text-xs text-slate-400 mb-4">Alias: neutro, seg, band</p>
+        </div>
+        <div class="text-center">
+          <span id="countNeutrophil" class="text-3xl font-extrabold text-slate-800">0</span>
+          <span id="percentNeutrophil" class="text-xs text-slate-500 block">(0%)</span>
+        </div>
+        <div class="flex gap-2 mt-4 pt-3 border-t">
+          <button onclick="updateManualCount('Neutrophil', -1)" class="w-full bg-slate-100 py-1.5 rounded font-bold">-</button>
+          <button onclick="updateManualCount('Neutrophil', 1)" class="w-full bg-indigo-50 text-indigo-700 py-1.5 rounded font-bold">+</button>
+        </div>
+      </div>
+
+      <!-- Lymphocyte -->
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
+        <div>
+          <h2 class="font-bold text-slate-800">Lymphocyte</h2>
+          <p class="text-xs text-slate-400 mb-4">Alias: lymph, lym</p>
+        </div>
+        <div class="text-center">
+          <span id="countLymphocyte" class="text-3xl font-extrabold text-slate-800">0</span>
+          <span id="percentLymphocyte" class="text-xs text-slate-500 block">(0%)</span>
+        </div>
+        <div class="flex gap-2 mt-4 pt-3 border-t">
+          <button onclick="updateManualCount('Lymphocyte', -1)" class="w-full bg-slate-100 py-1.5 rounded font-bold">-</button>
+          <button onclick="updateManualCount('Lymphocyte', 1)" class="w-full bg-blue-50 text-blue-700 py-1.5 rounded font-bold">+</button>
+        </div>
+      </div>
+
+      <!-- Monocyte -->
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
+        <div>
+          <h2 class="font-bold text-slate-800">Monocyte</h2>
+          <p class="text-xs text-slate-400 mb-4">Alias: monocyte, mono</p>
+        </div>
+        <div class="text-center">
+          <span id="countMonocyte" class="text-3xl font-extrabold text-slate-800">0</span>
+          <span id="percentMonocyte" class="text-xs text-slate-500 block">(0%)</span>
+        </div>
+        <div class="flex gap-2 mt-4 pt-3 border-t">
+          <button onclick="updateManualCount('Monocyte', -1)" class="w-full bg-slate-100 py-1.5 rounded font-bold">-</button>
+          <button onclick="updateManualCount('Monocyte', 1)" class="w-full bg-amber-50 text-amber-700 py-1.5 rounded font-bold">+</button>
+        </div>
+      </div>
+
+      <!-- Eosinophil -->
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
+        <div>
+          <h2 class="font-bold text-slate-800">Eosinophil</h2>
+          <p class="text-xs text-slate-400 mb-4">Alias: eosi, eos</p>
+        </div>
+        <div class="text-center">
+          <span id="countEosinophil" class="text-3xl font-extrabold text-slate-800">0</span>
+          <span id="percentEosinophil" class="text-xs text-slate-500 block">(0%)</span>
+        </div>
+        <div class="flex gap-2 mt-4 pt-3 border-t">
+          <button onclick="updateManualCount('Eosinophil', -1)" class="w-full bg-slate-100 py-1.5 rounded font-bold">-</button>
+          <button onclick="updateManualCount('Eosinophil', 1)" class="w-full bg-rose-50 text-rose-700 py-1.5 rounded font-bold">+</button>
+        </div>
+      </div>
+
+      <!-- Basophil -->
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
+        <div>
+          <h2 class="font-bold text-slate-800">Basophil</h2>
+          <p class="text-xs text-slate-400 mb-4">Alias: baso</p>
+        </div>
+        <div class="text-center">
+          <span id="countBasophil" class="text-3xl font-extrabold text-slate-800">0</span>
+          <span id="percentBasophil" class="text-xs text-slate-500 block">(0%)</span>
+        </div>
+        <div class="flex gap-2 mt-4 pt-3 border-t">
+          <button onclick="updateManualCount('Basophil', -1)" class="w-full bg-slate-100 py-1.5 rounded font-bold">-</button>
+          <button onclick="updateManualCount('Basophil', 1)" class="w-full bg-emerald-50 text-emerald-700 py-1.5 rounded font-bold">+</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal Results -->
+  <div id="resultsModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-6 space-y-6">
+      <div class="flex justify-between items-center border-b pb-4">
+        <h2 class="text-xl font-bold text-slate-800">📊 Laporan Offline WBC Counter</h2>
+        <button id="btnCloseModal" class="text-slate-400 text-xl font-bold">&times;</button>
+      </div>
+      <table class="w-full text-sm text-left border-collapse">
+        <thead>
+          <tr class="bg-slate-50 text-slate-600 font-semibold border-b">
+            <th class="p-3">Nama Sel</th>
+            <th class="p-3 text-center">Jumlah (%)</th>
+            <th class="p-3 text-center">Julat Rujukan</th>
+            <th class="p-3 text-center">Status</th>
+          </tr>
+        </thead>
+        <tbody id="resultsTableBody" class="divide-y"></tbody>
+      </table>
+      <div class="flex justify-end gap-3 pt-4 border-t">
+        <button onclick="window.print()" class="bg-indigo-600 text-white px-5 py-2.5 rounded-lg font-semibold">Print</button>
+        <button id="btnNewCount" class="bg-slate-800 text-white px-5 py-2.5 rounded-lg font-semibold">New Count</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
